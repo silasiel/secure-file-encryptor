@@ -1,8 +1,15 @@
-CC = gcc
+CCC = gcc
+
 CFLAGS = -Wall -Iinclude
 LIBS = -lssl -lcrypto
 
 SRC = src/main.c src/encrypt.c src/decrypt.c src/preview.c src/history.c src/crypto_utils.c
 
+OUT = build/encryptor.exe
+
 all:
-	$(CC) $(SRC) -o encryptor.exe $(CFLAGS) $(LIBS)
+	if not exist build mkdir build
+	$(CC) $(SRC) -o $(OUT) $(CFLAGS) $(LIBS)
+
+clean:
+	del /Q build\encryptor.exe
