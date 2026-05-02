@@ -1,14 +1,18 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+#include "../include/history.h"
+
 #define SALT_SIZE 16
-#define IV_SIZE 12         
+#define IV_SIZE 12
 #define KEY_SIZE 32
 #define TAG_SIZE 16
 
-//Key derivation (PBKDF2)
+
+// #KEY_DERIVATION
 void derive_key(const char *password, unsigned char *salt, unsigned char *key) {
     PKCS5_PBKDF2_HMAC(password, strlen(password),
                       salt, SALT_SIZE,
@@ -17,15 +21,16 @@ void derive_key(const char *password, unsigned char *salt, unsigned char *key) {
                       KEY_SIZE, key);
 }
 
-// ENCRYPT (AES-GCM)
-void encrypt_file_aes(const char *input, const char *output, const char *password) {
+
+// #ENCRYPT_AES_GCM
+int encrypt_file_aes(const char *input, const char *output, const char *password) {
 
     FILE *in = fopen(input, "rb");
     FILE *out = fopen(output, "wb");
 
     if (!in || !out) {
         printf("File error\n");
-        return;
+        return 1;
     }
 
     unsigned char salt[SALT_SIZE];
@@ -33,16 +38,25 @@ void encrypt_file_aes(const char *input, const char *output, const char *passwor
     unsigned char key[KEY_SIZE];
     unsigned char tag[TAG_SIZE];
 
-    RAND_bytes(salt, SALT_SIZE);
-    RAND_bytes(iv, IV_SIZE);
+    if (!RAND_bytes(salt, SALT_SIZE) || !RAND_bytes(iv, IV_SIZE)) {
+        printf("Random generation failed\n");
+        fclose(in);
+        fclose(out);
+        return 1;
+    }
 
     derive_key(password, salt, key);
 
-    // Save metadata
+    // Write metadata
     fwrite(salt, 1, SALT_SIZE, out);
     fwrite(iv, 1, IV_SIZE, out);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        fclose(in);
+        fclose(out);
+        return 1;
+    }
 
     EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, IV_SIZE, NULL);
@@ -52,34 +66,50 @@ void encrypt_file_aes(const char *input, const char *output, const char *passwor
     int inlen, outlen;
 
     while ((inlen = fread(inbuf, 1, sizeof(inbuf), in)) > 0) {
-        EVP_EncryptUpdate(ctx, outbuf, &outlen, inbuf, inlen);
+        if (!EVP_EncryptUpdate(ctx, outbuf, &outlen, inbuf, inlen)) {
+            printf("Encryption update failed\n");
+            EVP_CIPHER_CTX_free(ctx);
+            fclose(in);
+            fclose(out);
+            return 1;
+        }
         fwrite(outbuf, 1, outlen, out);
     }
 
-    EVP_EncryptFinal_ex(ctx, outbuf, &outlen);
+    if (!EVP_EncryptFinal_ex(ctx, outbuf, &outlen)) {
+        printf("Encryption final failed\n");
+        EVP_CIPHER_CTX_free(ctx);
+        fclose(in);
+        fclose(out);
+        return 1;
+    }
+
     fwrite(outbuf, 1, outlen, out);
 
-    // Get authentication tag
+    // Get tag
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TAG_SIZE, tag);
-
     fwrite(tag, 1, TAG_SIZE, out);
 
     EVP_CIPHER_CTX_free(ctx);
     fclose(in);
     fclose(out);
 
-    printf("Encryption successful (GCM)\n");
+    // #LOG
+    log_action("ENCRYPT", input);
+
+    return 0;
 }
 
-// DECRYPT (AES-GCM)
-void decrypt_file_aes(const char *input, const char *output, const char *password) {
+
+// #DECRYPT_AES_GCM
+int decrypt_file_aes(const char *input, const char *output, const char *password) {
 
     FILE *in = fopen(input, "rb");
     FILE *out = fopen(output, "wb");
 
     if (!in || !out) {
         printf("File error\n");
-        return;
+        return 1;
     }
 
     unsigned char salt[SALT_SIZE];
@@ -92,7 +122,6 @@ void decrypt_file_aes(const char *input, const char *output, const char *passwor
 
     derive_key(password, salt, key);
 
-    // Get file size
     fseek(in, 0, SEEK_END);
     long filesize = ftell(in);
     fseek(in, SALT_SIZE + IV_SIZE, SEEK_SET);
@@ -100,6 +129,11 @@ void decrypt_file_aes(const char *input, const char *output, const char *passwor
     long ciphertext_size = filesize - SALT_SIZE - IV_SIZE - TAG_SIZE;
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        fclose(in);
+        fclose(out);
+        return 1;
+    }
 
     EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, IV_SIZE, NULL);
@@ -117,27 +151,33 @@ void decrypt_file_aes(const char *input, const char *output, const char *passwor
         inlen = fread(inbuf, 1, to_read, in);
         total_read += inlen;
 
-        EVP_DecryptUpdate(ctx, outbuf, &outlen, inbuf, inlen);
+        if (!EVP_DecryptUpdate(ctx, outbuf, &outlen, inbuf, inlen)) {
+            printf("Decryption update failed\n");
+            EVP_CIPHER_CTX_free(ctx);
+            fclose(in);
+            fclose(out);
+            return 1;
+        }
+
         fwrite(outbuf, 1, outlen, out);
     }
 
-    // Read tag (from end)
+    // Read tag
     fread(tag, 1, TAG_SIZE, in);
-
-    // Set expected tag
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TAG_SIZE, tag);
 
-    // Verify integrity
+    // Verify
     if (EVP_DecryptFinal_ex(ctx, outbuf, &outlen) <= 0) {
-    printf("Decryption failed: file tampered or wrong password\n");
+        printf("Integrity check failed (tampered or wrong password)\n");
 
-    EVP_CIPHER_CTX_free(ctx);
-    fclose(in);
-    fclose(out);
-    remove(output);
+        EVP_CIPHER_CTX_free(ctx);
+        fclose(in);
+        fclose(out);
 
-    exit(1);   // 🔥 VERY IMPORTANT
-}
+        remove(output);  // remove corrupted output
+
+        return 1;
+    }
 
     fwrite(outbuf, 1, outlen, out);
 
@@ -145,5 +185,8 @@ void decrypt_file_aes(const char *input, const char *output, const char *passwor
     fclose(in);
     fclose(out);
 
-    printf("Decryption successful\n");
+    // #LOG
+    log_action("DECRYPT", input);
+
+    return 0;
 }
