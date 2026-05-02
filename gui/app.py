@@ -2,6 +2,17 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 import subprocess
 import os
+import sys
+
+# ===== PATH FIX (CRITICAL) =====
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ENCRYPTOR_PATH = os.path.join(BASE_DIR, "encryptor.exe")
+BASE_VAULT = os.path.join(BASE_DIR, "vault")
+
 from datetime import datetime
 
 from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -13,15 +24,21 @@ ensure_vault()
 
 selected_files = []
 current_folder = None
-EXECUTABLE = "build/encryptor.exe"
+
+# ===== FIXED =====
+EXECUTABLE = ENCRYPTOR_PATH
 
 
 # ================= LOGGING =================
 def log_action(action, target):
-    os.makedirs("logs", exist_ok=True)
+    log_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_path = os.path.join(log_dir, "history.log")
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    with open("logs/history.log", "a") as f:
+    with open(log_path, "a") as f:
         f.write(f"[{timestamp}] {action} {target}\n")
 
 
@@ -130,7 +147,8 @@ def decrypt_file(file):
     if not password:
         return
 
-    input_path = os.path.join("vault", current_folder, file)
+    # ===== FIXED PATH =====
+    input_path = os.path.join(BASE_VAULT, current_folder, file)
 
     output = filedialog.asksaveasfilename(
         initialfile=file.replace(".enc", "_decrypted")
@@ -150,7 +168,8 @@ def decrypt_file(file):
 
 # ================= PREVIEW =================
 def preview_file(file):
-    path = os.path.join("vault", current_folder, file)
+    # ===== FIXED PATH =====
+    path = os.path.join(BASE_VAULT, current_folder, file)
 
     result = subprocess.run(
         [EXECUTABLE, "preview", path],
@@ -173,8 +192,10 @@ def preview_file(file):
 
 # ================= LOG VIEW =================
 def view_logs():
-    log_path = "logs/history.log"
-    os.makedirs("logs", exist_ok=True)
+    log_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_path = os.path.join(log_dir, "history.log")
 
     if not os.path.exists(log_path):
         open(log_path, "w").close()
@@ -296,7 +317,6 @@ root.grid_rowconfigure(0, weight=1)
 root.grid_columnconfigure(1, weight=1)
 
 
-# SIDEBAR
 sidebar = tk.Frame(root, bg=SIDEBAR_BG, width=260)
 sidebar.grid(row=0, column=0, sticky="ns")
 sidebar.grid_propagate(False)
@@ -323,7 +343,6 @@ folder_list = tk.Frame(sidebar, bg=SIDEBAR_BG)
 folder_list.pack(fill="both", expand=True)
 
 
-# MAIN
 main = tk.Frame(root, bg=APP_BG)
 main.grid(row=0, column=1, sticky="nsew")
 
@@ -331,7 +350,6 @@ main.grid_rowconfigure(2, weight=1)
 main.grid_columnconfigure(0, weight=1)
 
 
-# DROP ZONE
 drop = tk.Frame(main, bg=CARD_BG, height=260, bd=2, relief="ridge")
 drop.grid(row=0, column=0, sticky="ew", padx=20, pady=15)
 

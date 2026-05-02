@@ -5,10 +5,16 @@ import secrets
 import subprocess
 import shutil
 import stat
-import time
+import sys
 
-EXECUTABLE = "build/encryptor.exe"
-VAULT = "vault"
+# ===== FIX PATHS (CRITICAL) =====
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+EXECUTABLE = os.path.join(BASE_DIR, "encryptor.exe")
+VAULT = os.path.join(BASE_DIR, "vault")
 
 
 def ensure_vault():
@@ -31,19 +37,30 @@ def get_files(folder):
     return os.listdir(path)
 
 
+# ================= ENCRYPT =================
 def encrypt_files(files, folder, password):
     folder_path = os.path.join(VAULT, folder)
     os.makedirs(folder_path, exist_ok=True)
 
     for f in files:
+        input_abs = os.path.abspath(f)
         out = os.path.join(folder_path, os.path.basename(f) + ".enc")
-        subprocess.run([EXECUTABLE, "encrypt", f, out, password])
+
+        subprocess.run([
+            EXECUTABLE,
+            "encrypt",
+            input_abs,
+            out,
+            password
+        ])
 
 
+# ================= DELETE =================
 def delete_file(folder, file):
     path = os.path.join(VAULT, folder, file)
     if os.path.exists(path):
         os.remove(path)
+
 
 def delete_folder(folder):
     path = os.path.join(VAULT, folder)
@@ -64,14 +81,14 @@ def delete_folder(folder):
     except Exception as e:
         print("Delete error:", e)
         return False
-    
-    
 
+
+# ================= PASSWORD META =================
 META_FILE = ".meta"
 
 
 def get_meta_path(folder):
-    return os.path.join("vault", folder, META_FILE)
+    return os.path.join(VAULT, folder, META_FILE)
 
 
 def set_folder_password(folder, password):
