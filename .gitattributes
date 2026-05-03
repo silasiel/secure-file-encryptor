@@ -1,3 +1,6 @@
 *.py linguist-language=Python
 *.c linguist-language=C
 *.h linguist-language=C
+
+*.iss linguist-vendored
+*.html linguist-vendored
