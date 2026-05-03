@@ -7,19 +7,14 @@ import shutil
 import stat
 import sys
 
-# ===== FIX PATHS (CRITICAL) =====
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-EXECUTABLE = os.path.join(BASE_DIR, "encryptor.exe")
-VAULT = os.path.join(BASE_DIR, "vault")
-
+APPDATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA"), "SecureVault")
+VAULT = os.path.join(APPDATA_DIR, "vault")
+LOGS = os.path.join(APPDATA_DIR, "logs")
 
 def ensure_vault():
     os.makedirs(VAULT, exist_ok=True)
-
+    os.makedirs(LOGS, exist_ok=True)
 
 def get_folders():
     ensure_vault()
@@ -37,25 +32,22 @@ def get_files(folder):
     return os.listdir(path)
 
 
-# ================= ENCRYPT =================
-def encrypt_files(files, folder, password):
+# ENCRYPT
+def encrypt_files(files, folder, password, executable):
     folder_path = os.path.join(VAULT, folder)
     os.makedirs(folder_path, exist_ok=True)
 
+    cmd = [executable, "encrypt_batch"]
+
     for f in files:
-        input_abs = os.path.abspath(f)
-        out = os.path.join(folder_path, os.path.basename(f) + ".enc")
+        cmd.append(os.path.abspath(f))
 
-        subprocess.run([
-            EXECUTABLE,
-            "encrypt",
-            input_abs,
-            out,
-            password
-        ])
+    cmd.append(folder_path)
+    cmd.append(password)
 
+    subprocess.run(cmd)
 
-# ================= DELETE =================
+# DELETE
 def delete_file(folder, file):
     path = os.path.join(VAULT, folder, file)
     if os.path.exists(path):
@@ -83,7 +75,7 @@ def delete_folder(folder):
         return False
 
 
-# ================= PASSWORD META =================
+# PASSWORD META
 META_FILE = ".meta"
 
 
@@ -109,7 +101,7 @@ def verify_folder_password(folder, password):
     meta_path = get_meta_path(folder)
 
     if not os.path.exists(meta_path):
-        return None  # no password set
+        return None  # since no  password is set
 
     with open(meta_path, "r") as f:
         data = json.load(f)
